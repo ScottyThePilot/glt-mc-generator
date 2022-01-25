@@ -1,0 +1,6 @@
+# Files created by Python
+cache/
+logs/
+
+# Rust build files
+target/
