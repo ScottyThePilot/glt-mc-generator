@@ -1,4 +1,5 @@
 mod landmass;
+mod landmass_shape;
 
 use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 use self::landmass::Landmass;

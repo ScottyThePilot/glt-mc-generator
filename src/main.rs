@@ -15,7 +15,7 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 
 use std::fs;
 use std::io;
-use std::path::{PathBuf, Path};
+use std::path::Path;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -74,7 +74,7 @@ fn main() -> PyResult<()> {
     .ok_or(io::Error::new(io::ErrorKind::Other, "no home dir"))?
     .join("AppData/Roaming/.minecraft/saves/glt");
   #[cfg(not(debug_assertions))]
-  let level_path = PathBuf::from("./output");
+  let level_path = std::path::PathBuf::from("./output");
 
   let generator = Generator::new(seed);
 
@@ -88,7 +88,7 @@ fn main() -> PyResult<()> {
     reset_level(&level_path)?;
     let level = amulet.call_method1("load_level", (&level_path,))?;
 
-    for chunk_pos_list in iter_chunk_layers() {
+    for chunk_pos_list in (0..).map(crate::utility::ring) {
       let touched = AtomicFlag::new();
       for chunk_pos in chunk_pos_list {
         if generator.chunk_exists(chunk_pos) {
@@ -180,21 +180,4 @@ fn iter_chunk_blocks() -> impl Iterator<Item = IVec3> {
       })
     })
   })
-}
-
-fn iter_chunk_layers() -> impl Iterator<Item = Vec<IVec2>> {
-  (0..).map(create_chunk_pos_list)
-}
-
-/// Creates a list of points along a square ring of size `level`
-fn create_chunk_pos_list(radius: usize) -> Vec<IVec2> {
-  if radius == 0 { return vec![IVec2::ZERO] };
-  let r = radius as i32;
-  let mut pos = IVec2::new(-r, -r);
-  let mut out = Vec::with_capacity(radius * 8);
-  while pos.x < r { pos.x += 1; out.push(pos); };
-  while pos.y < r { pos.y += 1; out.push(pos); };
-  while pos.x > -r { pos.x -= 1; out.push(pos); };
-  while pos.y > -r { pos.y -= 1; out.push(pos); };
-  out
 }
