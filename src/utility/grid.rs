@@ -68,8 +68,8 @@ impl<T> Grid<T> {
   }
 
   pub fn max<I: IndexGrid>(&self) -> I {
-    let x = self.width() as isize - self.offset[0] - 1;
-    let y = self.height() as isize - self.offset[1] - 1;
+    let x = self.width() as isize + self.offset[0] - 1;
+    let y = self.height() as isize + self.offset[1] - 1;
     I::from_indexes([x, y])
   }
 
@@ -517,5 +517,8 @@ mod tests {
       columns: 3,
       offset: [-1, -1]
     });
+
+    assert_eq!([-1, -1], grid.min::<[isize; 2]>());
+    assert_eq!([1, 2], grid.max::<[isize; 2]>());
   }
 }
