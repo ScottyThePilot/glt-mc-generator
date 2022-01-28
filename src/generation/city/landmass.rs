@@ -3,23 +3,28 @@ use rand::Rng;
 
 use super::landmass_shape::*;
 use crate::generation::{BoundingBox, Geometry};
+use crate::generation::pillar::Pillar;
+
+
 
 pub const LANDMASS_THICKNESS: u32 = 5;
-
-
+pub const PILLAR_RADIUS: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct Landmass {
   shape: LandmassShape,
-  vertical_pos: i32
+  pillars: Vec<Pillar>,
+  bottom: i32,
+  top: i32,
 }
 
 impl Landmass {
-  pub fn new<R: Rng>(source_rng: &mut R, vertical_pos: i32, size: f64) -> Self {
-    Landmass {
-      shape: LandmassShape::new(source_rng.gen(), size),
-      vertical_pos
-    }
+  pub fn new<R: Rng>(source_rng: &mut R, top: i32, bottom: i32, size: f64) -> Self {
+    let shape = LandmassShape::new(source_rng.gen(), size);
+    let pillars = shape.generate_pillar_points().into_iter()
+      .map(|origin| Pillar::new_bounded(origin, PILLAR_RADIUS, Some(bottom), Some(top)))
+      .collect::<Vec<Pillar>>();
+    Landmass { shape, pillars, top, bottom }
   }
 
   pub fn max_y(&self) -> i32 {
@@ -27,25 +32,30 @@ impl Landmass {
   }
 
   pub fn min_y(&self) -> i32 {
-    self.slab_pos_lower()
+    self.slab_pos_lower().min(self.bottom)
   }
 
   fn slab_pos_upper(&self) -> i32 {
-    self.vertical_pos
+    self.top
   }
 
   fn slab_pos_lower(&self) -> i32 {
-    self.vertical_pos - LANDMASS_THICKNESS as i32 + 1
+    self.top - LANDMASS_THICKNESS as i32 + 1
   }
 
-  #[inline]
-  pub fn sample_z(&self, z: i32) -> bool {
-    z == self.slab_pos_upper() || z == self.slab_pos_lower()
+  fn sample_slab(&self, pos: IVec3) -> bool {
+    let slab_upper = self.slab_pos_upper();
+    let slab_lower = self.slab_pos_lower();
+    self.shape.sample(pos.xy()).is_some() && (
+      (pos.z == slab_lower || pos.z == slab_upper) ||
+      ((slab_lower..=slab_upper).contains(&pos.z) && (
+        sample_checkered(2, pos.xy()) || self.shape.is_edge_at(pos.xy())
+      ))
+    )
   }
 
-  #[inline]
-  pub fn sample_xy(&self, xy: IVec2) -> bool {
-    self.shape.sample(xy).is_some()
+  fn sample_pillars(&self, pos: IVec3) -> bool {
+    self.pillars.iter().any(|pillar| pillar.block_at(pos))
   }
 }
 
@@ -57,14 +67,7 @@ impl Geometry for Landmass {
   }
 
   fn block_at(&self, pos: IVec3) -> bool {
-    let slab_upper = self.slab_pos_upper();
-    let slab_lower = self.slab_pos_lower();
-    self.sample_xy(pos.xy()) && (
-      (pos.z == slab_lower || pos.z == slab_upper) ||
-      ((slab_lower..=slab_upper).contains(&pos.z) && (
-        sample_checkered(2, pos.xy()) || self.shape.is_edge_at(pos.xy())
-      ))
-    )
+    self.sample_slab(pos) || self.sample_pillars(pos)
   }
 }
 

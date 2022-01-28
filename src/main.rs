@@ -1,5 +1,4 @@
 extern crate glam;
-extern crate dirs;
 extern crate noise;
 extern crate pyo3;
 extern crate rand;
@@ -10,12 +9,12 @@ mod utility;
 
 use glam::{IVec3, IVec2, Vec3Swizzles};
 use pyo3::prelude::*;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -45,11 +44,11 @@ impl Generator {
 
     let bedrock = Bedrock::new(&mut source_rng);
     let ocean_floor = Ocean::new(&mut source_rng);
-    let city = City::new(&mut source_rng, 64);
+    let city = City::new(&mut source_rng);
 
     let city_bounds = city.bounding_box_guess();
-    let city_bounds_min = city_bounds.min.xy();
-    let city_bounds_max = city_bounds.max.xy();
+    let city_bounds_min = city_bounds.min.xy() - 64;
+    let city_bounds_max = city_bounds.max.xy() + 64;
 
     let inner = Union::new((bedrock, city, ocean_floor));
     let inner = LimitBounds::new(inner, city_bounds_min, city_bounds_max);
@@ -65,35 +64,45 @@ impl Generator {
   }
 }
 
-fn main() -> PyResult<()> {
-  let seed = std::env::args().nth(1)
-    .and_then(|seed| seed.parse::<u64>().ok())
-    .unwrap_or(0);
+fn get_level_path() -> PathBuf {
   #[cfg(debug_assertions)]
-  let level_path = dirs::home_dir()
-    .ok_or(io::Error::new(io::ErrorKind::Other, "no home dir"))?
-    .join("AppData/Roaming/.minecraft/saves/glt");
-  #[cfg(not(debug_assertions))]
-  let level_path = std::path::PathBuf::from("./output");
+  if let Ok(location) = fs::read_to_string("debug-output-location.txt") {
+    return Path::new(location.trim()).join("glt");
+  };
 
-  let generator = Generator::new(seed);
+  PathBuf::from("./output")
+}
 
-  println!("bounding box: {:?}", generator.inner.bounding_box_guess());
+fn get_seed() -> u64 {
+  std::env::args().nth(1)
+    .and_then(|seed| seed.parse::<u64>().ok())
+    .unwrap_or(0)
+}
 
+fn main() -> PyResult<()> {
+  println!("basic generation...");
+  let generator = Generator::new(get_seed());
+
+  let level_path = get_level_path();
+
+  println!("rendering chunks...");
   Python::with_gil(|py| {
     disable_python_logging(py)?;
 
     let amulet = py.import("amulet")?;
 
     reset_level(&level_path)?;
+
     let level = amulet.call_method1("load_level", (&level_path,))?;
 
+    // Steps through rings of chunks expanding out from 0,0 until a ring
+    // is reached where no chunks would be inside the generator's bounding box
     for chunk_pos_list in (0..).map(crate::utility::ring) {
       let touched = AtomicFlag::new();
       for chunk_pos in chunk_pos_list {
         if generator.chunk_exists(chunk_pos) {
           touched.set();
-          println!("generating chunk: ({:>3}, {:>3})", chunk_pos.x, chunk_pos.y);
+          println!("rendering chunk: ({:>3}, {:>3})", chunk_pos.x, chunk_pos.y);
           generate_chunk(py, &generator, &level, chunk_pos)?;
         };
       };

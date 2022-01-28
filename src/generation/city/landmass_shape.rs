@@ -7,6 +7,9 @@ use std::collections::VecDeque;
 
 
 
+const PILLAR_EDGE_DISTANCE: usize = 12;
+const PILLAR_SPACING: usize = 32;
+
 #[derive(Debug, Clone)]
 pub struct LandmassShape {
   grid: Grid<LandmassCell>
@@ -16,6 +19,10 @@ impl LandmassShape {
   pub fn new(seed: u32, size: f64) -> Self {
     let grid = generate_landmass_shape(seed, size);
     LandmassShape { grid }
+  }
+
+  pub fn generate_pillar_points(&self) -> Vec<IVec2> {
+    generate_mount_points(&self.grid, PILLAR_EDGE_DISTANCE, PILLAR_SPACING)
   }
 
   #[inline]
@@ -44,18 +51,19 @@ pub struct LandmassCell {
   /// An ordering value relating to the point's position along the edge of the shape.
   /// Nearby landmass cells will have similar values.
   pub ordering: usize,
+  pub edge_distance: usize,
   pub edge: bool
 }
 
 impl LandmassCell {
-  pub const MAX_ORDERING: f32 = MAX_ORDERING;
-
-  pub fn new(ordering: usize, edge: bool) -> Self {
-    LandmassCell { ordering, edge }
+  fn new(ordering: usize, edge_distance: usize, edge: bool) -> Self {
+    LandmassCell { ordering, edge_distance, edge }
   }
 }
 
 
+
+const DISTANCE_POWER: i32 = 4;
 
 const MAX_ORDERING: f32 = u32::MAX as f32;
 
@@ -134,7 +142,6 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
       .inspect(|&pos| all_edges.push(pos))
       .max_by_key(|&pos| pos.abs().max_element())
       .expect("unreachable");
-    println!("{} total edges, outer_edge_root: {}", all_edges.len(), outer_edge_root);
     (all_edges, outer_edge_root)
   };
 
@@ -191,16 +198,18 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
     (grid, outer_edges)
   };
 
-  fn get_ordering(outer_edges: &[(IVec2, Vec2)], pos: IVec2) -> usize {
-    let mut totaled_vector = Vec2::ZERO;
-    for &(outer_edge, vector) in outer_edges {
-      let d = outer_edge.as_vec2().distance(pos.as_vec2());
-      let d = d.powi(2).recip();
-      totaled_vector += vector * d;
-    };
-
+  fn get_ordering_and_dist(outer_edges: &[(IVec2, Vec2)], pos: IVec2) -> (usize, usize) {
+    const INIT: (Vec2, Option<f32>) = (Vec2::ZERO, None);
+    let (totaled_vector, dist) = outer_edges.into_iter()
+      .fold(INIT, |(acc_vector, acc_dist), &(outer_edge, vector)| {
+        let dist = outer_edge.as_vec2().distance(pos.as_vec2());
+        let acc_vector = acc_vector + vector * dist.powi(-DISTANCE_POWER);
+        let acc_dist = acc_dist.map_or(dist, |m| m.min(dist));
+        (acc_vector, Some(acc_dist))
+      });
     let a = f32::atan2(-totaled_vector.y, -totaled_vector.x);
-    ((a + PI) / TAU * MAX_ORDERING).floor() as usize
+    let ordering = ((a + PI) / TAU * MAX_ORDERING).floor() as usize;
+    (ordering, dist.expect("unreachable").floor() as usize)
   }
 
   #[inline]
@@ -211,13 +220,30 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
   grid.enumerate::<IVec2>()
     .map(|(pos, value)| (pos, match *value {
       Value::Present => {
-        LandmassCell::new(get_ordering(&outer_edges, pos), false)
+        let (ordering, distance) = get_ordering_and_dist(&outer_edges, pos);
+        LandmassCell::new(ordering, distance, false)
       },
-      Value::Boundary => unreachable!(),
       Value::BoundaryFinal { index } => {
-        LandmassCell::new(get_ordering_from_index(index, outer_edges.len()), true)
-      }
+        LandmassCell::new(get_ordering_from_index(index, outer_edges.len()), 0, true)
+      },
+      Value::Boundary => unreachable!()
     }))
+    .collect()
+}
+
+fn generate_mount_points(grid: &Grid<LandmassCell>, distance: usize, spacing: usize) -> Vec<IVec2> {
+  let mut points = grid.enumerate::<IVec2>()
+    .filter(|&(_, value)| value.edge_distance == distance)
+    .map(|(pos, value)| (pos, value.ordering))
+    .collect::<Vec<(IVec2, usize)>>();
+  let mount_point_count = points.len() / spacing;
+  let adjusted_spacing = points.len() as f32 / mount_point_count as f32;
+  points.sort_unstable_by_key(|&(_, ordering)| ordering);
+  points.into_iter().enumerate()
+    .filter_map(|(i, (pos, _))| {
+      let i = (i as f32 % adjusted_spacing).floor() as usize;
+      (i == 0).then(|| pos)
+    })
     .collect()
 }
 

@@ -3,8 +3,6 @@
 Minecraft world generator written in Rust, built on the [Amulet-Core](https://github.com/Amulet-Team/Amulet-Core) Python package.
 The end goal is to be able to procedurally generate cities akin to those from the show *Girls' Last Tour*.
 
-Amulet-Core is used
-
 # Usage
 
 Requirements:

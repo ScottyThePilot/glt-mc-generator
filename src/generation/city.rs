@@ -4,7 +4,7 @@ mod landmass_shape;
 use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 use self::landmass::Landmass;
 
-use glam::{IVec3, Vec3Swizzles};
+use glam::IVec3;
 use rand::Rng;
 
 
@@ -15,9 +15,9 @@ pub struct City {
 }
 
 impl City {
-  pub fn new<R: Rng>(source_rng: &mut R, level: i32) -> Self {
+  pub fn new<R: Rng>(source_rng: &mut R) -> Self {
     City {
-      landmass: Landmass::new(source_rng, level, 1.0)
+      landmass: Landmass::new(source_rng, 48, -64, 1.0)
     }
   }
 }

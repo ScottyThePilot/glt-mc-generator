@@ -4,3 +4,7 @@ logs/
 
 # Rust build files
 target/
+
+# Others
+output/
+debug-output-location.txt
