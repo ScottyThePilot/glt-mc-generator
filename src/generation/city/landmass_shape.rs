@@ -1,7 +1,8 @@
 use glam::{DVec2, IVec2, Vec2};
+use grid::SparseGrid;
 use noise::{NoiseFn, MultiFractal, Fbm, Perlin};
 
-use crate::utility::{Grid, cardinal4, cardinal8};
+use crate::utility::{cardinal4, cardinal8};
 
 use std::collections::VecDeque;
 
@@ -12,7 +13,7 @@ const PILLAR_SPACING: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct LandmassShape {
-  grid: Grid<LandmassCell>
+  grid: SparseGrid<LandmassCell>
 }
 
 impl LandmassShape {
@@ -37,12 +38,12 @@ impl LandmassShape {
 
   #[inline]
   pub fn min(&self) -> IVec2 {
-    self.grid.min()
+    self.grid.min().expect("unreachable")
   }
 
   #[inline]
   pub fn max(&self) -> IVec2 {
-    self.grid.max()
+    self.grid.max().expect("unreachable")
   }
 }
 
@@ -67,7 +68,7 @@ const DISTANCE_POWER: i32 = 4;
 
 const MAX_ORDERING: f32 = u32::MAX as f32;
 
-fn generate_landmass_shape(seed: u32, size: f64) -> Grid<LandmassCell> {
+fn generate_landmass_shape(seed: u32, size: f64) -> SparseGrid<LandmassCell> {
   assert!(size >= 1.0, "landmass size may not be less than 1");
   discover(landmass_generator(seed, size, 128.0))
 }
@@ -93,7 +94,7 @@ fn generate_landmass_shape(seed: u32, size: f64) -> Grid<LandmassCell> {
 /// marked 'boundary'. The array of elements from step 2 is then partitioned into two arrays, one with
 /// all 'boundary' elements, and one with all 'final boundary' elements. The 'boundary' elements array
 /// is consumed as the starting queue for a flood-fill that fills in all of the holes in the shape.
-fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
+fn discover(noise: impl NoiseFn<f64, 2>) -> SparseGrid<LandmassCell> {
   use std::f32::consts::{TAU, PI};
 
   #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,25 +107,25 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
   }
 
   #[inline]
-  fn boundary_at(grid: &Grid<Value>, pos: IVec2) -> bool {
+  fn boundary_at(grid: &SparseGrid<Value>, pos: IVec2) -> bool {
     matches!(grid.get(pos), Some(&Value::Boundary))
   }
 
   // Discover the basic shape that the noise function produces
   let grid = {
     let mut q = VecDeque::from([IVec2::ZERO]);
-    let mut grid: Grid<Value> = Grid::new();
+    let mut grid: SparseGrid<Value> = SparseGrid::new();
     while let Some(pos) = q.pop_front() {
       let value = noise.get(pos.as_dvec2());
       if value > 0.0 {
-        grid.put_expand(pos, Value::Present);
+        grid.put(pos, Value::Present);
         for candidate in cardinal4(pos) {
           if !grid.contains(candidate) && !q.contains(&candidate) {
             q.push_back(candidate);
           };
         };
       } else {
-        grid.put_expand(pos, Value::Boundary);
+        grid.put(pos, Value::Boundary);
       };
     };
 
@@ -134,7 +135,7 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
   // Discover all of the shape's edges and the most distant edge element
   let (all_edges, outer_edge_root) = {
     let mut all_edges: Vec<IVec2> = Vec::new();
-    let outer_edge_root = grid.enumerate::<IVec2>()
+    let outer_edge_root = grid.cells()
       .filter_map(|(pos, value)| match *value {
         Value::Present => None,
         Value::Boundary => Some(pos),
@@ -218,7 +219,7 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
     (index as f32 / len as f32 * MAX_ORDERING).floor() as usize
   }
 
-  grid.enumerate::<IVec2>()
+  grid.cells()
     .map(|(pos, value)| (pos, match *value {
       Value::Present => {
         let (ordering, distance) = get_ordering_and_dist(&outer_edges, pos);
@@ -232,8 +233,8 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> Grid<LandmassCell> {
     .collect()
 }
 
-fn generate_mount_points(grid: &Grid<LandmassCell>, distance: usize, spacing: usize) -> Vec<IVec2> {
-  let mut points = grid.enumerate::<IVec2>()
+fn generate_mount_points(grid: &SparseGrid<LandmassCell>, distance: usize, spacing: usize) -> Vec<IVec2> {
+  let mut points = grid.cells()
     .filter(|&(_, value)| value.edge_distance == distance)
     .map(|(pos, value)| (pos, value.ordering))
     .collect::<Vec<(IVec2, usize)>>();

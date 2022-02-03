@@ -1,13 +1,7 @@
-mod boolgrid;
-mod grid;
-
 use glam::IVec2;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::io;
-
-pub use self::boolgrid::*;
-pub use self::grid::*;
 
 
 

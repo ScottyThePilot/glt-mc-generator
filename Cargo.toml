@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 glam = { version = "0.20", features = ["glam-assert"] }
+grid = { git = "https://github.com/ScottyThePilot/grid" }
 noise = { git = "https://github.com/ScottyThePilot/noise-rs" }
 rand = "0.8.4"
 rand_xoshiro = "0.6.0"

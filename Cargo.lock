@@ -53,10 +53,19 @@ name = "glt-mc-generator"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "grid",
  "noise",
  "pyo3",
  "rand 0.8.4",
  "rand_xoshiro",
+]
+
+[[package]]
+name = "grid"
+version = "0.1.0"
+source = "git+https://github.com/ScottyThePilot/grid#a2fed546e140551c9ba31f6d9686c1d6d3f06553"
+dependencies = [
+ "glam",
 ]
 
 [[package]]
