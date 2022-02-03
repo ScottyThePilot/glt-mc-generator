@@ -68,7 +68,8 @@ const DISTANCE_POWER: i32 = 4;
 const MAX_ORDERING: f32 = u32::MAX as f32;
 
 fn generate_landmass_shape(seed: u32, size: f64) -> Grid<LandmassCell> {
-  discover(landmass_generator(seed, size.max(1.0), 128.0))
+  assert!(size >= 1.0, "landmass size may not be less than 1");
+  discover(landmass_generator(seed, size, 128.0))
 }
 
 /// # Explanation
