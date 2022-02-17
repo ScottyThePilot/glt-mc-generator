@@ -1,51 +1,73 @@
 mod building;
-mod landmass;
 mod landmass_shape;
+mod layer;
 
+use std::iter::repeat_with;
+
+use glam::IVec3;
+use rand::{Rng, SeedableRng};
+use rand_xoshiro::Xoshiro256PlusPlus;
+use rayon::prelude::*;
+
+use self::layer::Layer;
 use super::{Block, BoundingBox, Geometry, MaterialGeometry};
-use self::landmass::Landmass;
-use self::building::Building;
-
-use glam::{IVec2, IVec3};
-use rand::Rng;
+use super::union::Union;
 
 
 
 #[derive(Debug, Clone)]
 pub struct City {
-  landmass: Landmass,
-  building: Building
+  layers: Union<Vec<Layer>>
 }
 
 impl City {
-  pub fn new<R: Rng>(source_rng: &mut R) -> Self {
+  pub fn generate_new<R: Rng>(mut source_rng: R, layer_count: usize) -> Self {
+    let rngs = repeat_with(|| Xoshiro256PlusPlus::from_rng(&mut source_rng).unwrap())
+      .take(layer_count).collect::<Vec<_>>();
+    let mut layers = rngs.into_par_iter()
+      .enumerate()
+      .map(|(i, mut rng)| {
+        let top = (i as i32 + 1) * 48;
+        let bottom = if i == 0 { crate::WORLD_MIN_Z } else { i as i32 * 48 };
+        let size = (layer_count - i) as f64;
+        Layer::generate_new(&mut rng, top, bottom, size)
+      })
+      .collect::<Vec<Layer>>();
+    windows_mut_each(&mut layers, |[ref mut below, ref above]| {
+      below.remove_buildings_colliding_with(above);
+    });
+
     City {
-      landmass: Landmass::new(source_rng, 48, -64, 1.0),
-      building: Building::new(IVec2::new(4, 6), IVec2::new(14, 10), 48, 9)
+      layers: Union::new(layers)
     }
   }
 }
 
 impl Geometry for City {
-  fn bounding_box_guess(&self) -> BoundingBox {
-    BoundingBox::join(
-      self.landmass.bounding_box_guess(),
-      self.building.bounding_box_guess()
-    )
+  fn bounding_box(&self) -> BoundingBox {
+    self.layers.bounding_box()
   }
 
   fn block_at(&self, pos: IVec3) -> bool {
-    self.landmass.block_at(pos) ||
-    self.building.block_at(pos)
+    self.layers.block_at(pos)
   }
 }
 
 impl MaterialGeometry for City {
   fn block_material_at(&self, pos: IVec3) -> Option<Block> {
-    if self.block_at(pos) {
-      Some(super::blocks::GRAY_CONCRETE)
-    } else {
-      None
-    }
+    self.layers.block_material_at(pos)
   }
+}
+
+
+
+fn windows_mut_each<T, F, const N: usize>(slice: &mut [T], mut f: F)
+where F: FnMut(&mut [T; N]) {
+  if slice.len() < N { return };
+  for i in 0..(slice.len() + 1 - N) {
+    match (&mut slice[i..(i + N)]).try_into() {
+      Ok(window) => f(window),
+      Err(err) => unreachable!("{}", err)
+    };
+  };
 }

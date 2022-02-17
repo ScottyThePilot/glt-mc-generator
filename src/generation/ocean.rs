@@ -3,11 +3,11 @@
 //! - An ocean spanning from y=0 downwards until it meets the sea floor.
 //! - A seafloor that starts at roughly y=-32, with roughly 2 block of gravel and deepslate underneath.
 //! - Randomly placed seagrass and tall seagrass on the gravel sea floor.
-use super::{Block, BoundingBox, Geometry, MaterialGeometry};
-
 use glam::{IVec2, IVec3, Vec3Swizzles};
-use noise::{NoiseFn, MultiFractal, Fbm, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use rand::Rng;
+
+use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 
 
 
@@ -45,7 +45,7 @@ impl Ocean {
 }
 
 impl Geometry for Ocean {
-  fn bounding_box_guess(&self) -> BoundingBox {
+  fn bounding_box(&self) -> BoundingBox {
     let min = IVec3::new(i32::MIN, i32::MIN, -64);
     let max = IVec3::new(i32::MAX, i32::MAX, 0);
     BoundingBox::new(min, max)

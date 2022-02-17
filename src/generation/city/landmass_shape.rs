@@ -1,12 +1,18 @@
+use std::collections::VecDeque;
+
 use glam::{DVec2, IVec2, Vec2};
 use grid::SparseGrid;
-use noise::{NoiseFn, MultiFractal, Fbm, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use rand::Rng;
 
 use crate::utility::{cardinal4, cardinal8};
 
-use std::collections::VecDeque;
 
 
+const MIN_BUILDING_SIZE: u32 = 5;
+const MAX_BUILDING_SIZE: u32 = 9;
+const MIN_BUILDING_HEIGHT: u32 = 2;
+const MAX_BUILDING_HEIGHT: u32 = 8;
 
 const PILLAR_EDGE_DISTANCE: usize = 12;
 const PILLAR_SPACING: usize = 32;
@@ -17,13 +23,17 @@ pub struct LandmassShape {
 }
 
 impl LandmassShape {
-  pub fn new(seed: u32, size: f64) -> Self {
+  pub fn generate_new(seed: u32, size: f64) -> Self {
     let grid = generate_landmass_shape(seed, size);
     LandmassShape { grid }
   }
 
   pub fn generate_pillar_points(&self) -> Vec<IVec2> {
     generate_mount_points(&self.grid, PILLAR_EDGE_DISTANCE, PILLAR_SPACING)
+  }
+
+  pub fn generate_building_shapes<R: Rng>(&self, rng: &mut R) -> Vec<BuildingShape> {
+    generate_building_shapes(rng, &self.grid)
   }
 
   #[inline]
@@ -58,7 +68,11 @@ pub struct LandmassCell {
 
 impl LandmassCell {
   fn new(ordering: usize, edge_distance: usize, edge: bool) -> Self {
-    LandmassCell { ordering, edge_distance, edge }
+    LandmassCell {
+      ordering,
+      edge_distance,
+      edge
+    }
   }
 }
 
@@ -95,15 +109,13 @@ fn generate_landmass_shape(seed: u32, size: f64) -> SparseGrid<LandmassCell> {
 /// all 'boundary' elements, and one with all 'final boundary' elements. The 'boundary' elements array
 /// is consumed as the starting queue for a flood-fill that fills in all of the holes in the shape.
 fn discover(noise: impl NoiseFn<f64, 2>) -> SparseGrid<LandmassCell> {
-  use std::f32::consts::{TAU, PI};
+  use std::f32::consts::{PI, TAU};
 
   #[derive(Debug, Clone, Copy, PartialEq, Eq)]
   enum Value {
     Present,
     Boundary,
-    BoundaryFinal {
-      index: usize
-    }
+    BoundaryFinal { index: usize }
   }
 
   #[inline]
@@ -219,20 +231,23 @@ fn discover(noise: impl NoiseFn<f64, 2>) -> SparseGrid<LandmassCell> {
     (index as f32 / len as f32 * MAX_ORDERING).floor() as usize
   }
 
-  grid.cells()
-    .map(|(pos, value)| (pos, match *value {
-      Value::Present => {
-        let (ordering, distance) = get_ordering_and_dist(&outer_edges, pos);
-        LandmassCell::new(ordering, distance, false)
-      },
-      Value::BoundaryFinal { index } => {
-        LandmassCell::new(get_ordering_from_index(index, outer_edges.len()), 0, true)
-      },
-      Value::Boundary => unreachable!()
-    }))
+  grid
+    .cells()
+    .map(|(pos, value)| {
+      (pos, match *value {
+        Value::Present => {
+          let (ordering, distance) = get_ordering_and_dist(&outer_edges, pos);
+          LandmassCell::new(ordering, distance, false)
+        },
+        Value::BoundaryFinal { index } => LandmassCell::new(get_ordering_from_index(index, outer_edges.len()), 0, true),
+        Value::Boundary => unreachable!()
+      })
+    })
     .collect()
 }
 
+/// Uses data previously generated and stored in each `LandmassCell` to generate a number of
+/// mount points for pillars, offset from the edge of the shape by `distance` and spaced approximately by `spacing`
 fn generate_mount_points(grid: &SparseGrid<LandmassCell>, distance: usize, spacing: usize) -> Vec<IVec2> {
   let mut points = grid.cells()
     .filter(|&(_, value)| value.edge_distance == distance)
@@ -276,4 +291,109 @@ impl NoiseFn<f64, 2> for OriginDistance {
     let dist = DVec2::from(point.into()).length();
     (self.offset - dist).clamp(-1.0, 1.0)
   }
+}
+
+
+
+#[inline]
+pub(super) fn random_building_height<R: Rng>(rng: &mut R) -> u32 {
+  rng.gen_range(MIN_BUILDING_HEIGHT..MAX_BUILDING_HEIGHT)
+}
+
+#[derive(Debug, Clone)]
+pub struct BuildingShape {
+  pub(super) edge_min: IVec2,
+  pub(super) edge_max: IVec2
+}
+
+/// Populates the landmass with randomly sized buildings until it is completely full
+fn generate_building_shapes<R: Rng>(rng: &mut R, grid: &SparseGrid<LandmassCell>) -> Vec<BuildingShape> {
+  /// Finds the most optimal spot to place the next building if possible
+  fn generate_next_building<R: Rng>(rng: &mut R, grid: &SparseGrid<Value>) -> Option<BuildingShape> {
+    let size_x = rng.gen_range(MIN_BUILDING_SIZE..MAX_BUILDING_SIZE);
+    let size_y = rng.gen_range(MIN_BUILDING_SIZE..MAX_BUILDING_SIZE);
+    let size = IVec2::new(size_x as i32, size_y as i32);
+
+    grid.cells()
+      .filter_map(|(pos, _)| {
+        let building = BuildingShape {
+          edge_min: pos,
+          edge_max: pos + size - IVec2::ONE
+        };
+
+        // The number of adjacent building cells is used to 'score'
+        // each position when picking a spot to place the next building
+        get_neighbor_count_if_vacant(grid, &building)
+          .map(|n| (n, building))
+      })
+      .max_by_key(|e| e.0)
+      .map(|(_, building)| building)
+  }
+
+  fn put_building_in_vacancy(grid: &mut SparseGrid<Value>, building: &BuildingShape, i: usize) {
+    for x in building.edge_min.x..=building.edge_max.x {
+      for y in building.edge_min.y..=building.edge_max.y {
+        if let Some(value @ &mut Value::Vacant) = grid.get_mut(IVec2::new(x, y)) {
+          *value = Value::Occupied(i);
+        } else {
+          panic!("`put_building_in_vacancy` requires that all positions be vacant");
+        };
+      };
+    };
+  }
+
+  /// Returns the number of occupied cells around this building as long as all cells inside the building are vacant
+  fn get_neighbor_count_if_vacant(grid: &SparseGrid<Value>, building: &BuildingShape) -> Option<usize> {
+    let min = building.edge_min - IVec2::ONE;
+    let max = building.edge_max + IVec2::ONE;
+    let mut neighbor_count = 0;
+    for x in min.x..=max.x {
+      let is_edge_x = x == min.x || x == max.x;
+      for y in min.y..=max.y {
+        let is_edge_y = y == min.y || y == max.y;
+
+        match (is_edge_x || is_edge_y, grid.get(IVec2::new(x, y))) {
+          // If the current point is an edge (one block outside the building),
+          // and it is occupied, then increment the neighbor count
+          (true, Some(&Value::Occupied(_))) => neighbor_count += 1,
+          // If the current point is not an edge (actually inside the building),
+          // and it is not vacant then this building is not vacant, terminate
+          (false, None | Some(&Value::Occupied(_))) => return None,
+          // If the current point is an edge and is null, terminate
+          // This is to prevent buildings from being placed right next to edges
+          (true, None) => return None,
+          _ => ()
+        };
+      };
+    };
+
+    Some(neighbor_count)
+  }
+
+  #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+  enum Value {
+    Vacant,
+    Occupied(usize)
+  }
+
+  let mut grid = grid.cells()
+    .filter_map(|(pos, _)| match ivec2_rem_euclid_2(pos) {
+      true => Some((pos / 2, Value::Vacant)),
+      false => None
+    })
+    .collect::<SparseGrid<Value>>();
+  let mut i = 0;
+  let mut buildings = Vec::new();
+  while let Some(building) = generate_next_building(rng, &grid) {
+    put_building_in_vacancy(&mut grid, &building, i);
+    buildings.push(building);
+    i += 1;
+  };
+
+  buildings
+}
+
+#[inline]
+fn ivec2_rem_euclid_2(s: IVec2) -> bool {
+  s.x.rem_euclid(2) == 0 && s.y.rem_euclid(2) == 0
 }

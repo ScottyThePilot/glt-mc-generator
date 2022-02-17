@@ -1,8 +1,8 @@
-use super::{Block, BoundingBox, Geometry, MaterialGeometry};
-
 use glam::{IVec2, IVec3, Vec3Swizzles};
 use noise::{NoiseFn, Perlin};
 use rand::Rng;
+
+use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 
 
 
@@ -23,13 +23,14 @@ impl Bedrock {
 }
 
 impl Geometry for Bedrock {
-  fn bounding_box_guess(&self) -> BoundingBox {
+  fn bounding_box(&self) -> BoundingBox {
     let min = IVec3::new(i32::MIN, i32::MIN, -64);
     let max = IVec3::new(i32::MAX, i32::MAX, -60);
     BoundingBox::new(min, max)
   }
 
   fn block_at(&self, pos: IVec3) -> bool {
+    pos.z < -50 &&
     pos.z <= self.sample(pos.xy()).max(-64)
   }
 }

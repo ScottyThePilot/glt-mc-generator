@@ -1,7 +1,15 @@
+use std::io;
+
 use glam::IVec2;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::io;
+#[macro_export]
+macro_rules! ret_if_some {
+  ($expr:expr) => {
+    if let Some(value) = $expr {
+      return Some(value);
+    }
+  };
+}
 
 
 
@@ -31,25 +39,6 @@ pub fn cardinal4(center: IVec2) -> impl Iterator<Item = IVec2> {
 #[inline]
 pub fn cardinal8(center: IVec2) -> impl Iterator<Item = IVec2> {
   CARDINAL8.into_iter().map(move |offset| offset + center)
-}
-
-
-
-pub struct AtomicFlag(AtomicBool);
-
-impl AtomicFlag {
-  #[inline]
-  pub fn new() -> Self {
-    AtomicFlag(AtomicBool::new(false))
-  }
-
-  pub fn set(&self) {
-    self.0.store(true, Ordering::Relaxed);
-  }
-
-  pub fn get(&self) -> bool {
-    self.0.load(Ordering::Relaxed)
-  }
 }
 
 

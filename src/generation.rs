@@ -6,18 +6,19 @@ pub mod limit_bounds;
 pub mod materialize;
 pub mod ocean;
 pub mod pillar;
+pub mod union_threaded;
 pub mod union;
-
-use glam::{IVec2, IVec3};
-use pyo3::{Python, PyResult, PyObject};
 
 use std::borrow::Cow;
 use std::cmp::PartialOrd;
 
+use glam::{IVec2, IVec3};
+use pyo3::{PyObject, PyResult, Python};
+
 
 
 pub trait Geometry {
-  fn bounding_box_guess(&self) -> BoundingBox;
+  fn bounding_box(&self) -> BoundingBox;
 
   fn block_at(&self, pos: IVec3) -> bool;
 }
@@ -95,6 +96,21 @@ impl BoundingBox {
     BoundingBox { min, max }
   }
 
+  pub fn contains(self, pos: IVec3) -> bool {
+    pos.x >= self.min.x && pos.x <= self.max.x &&
+    pos.y >= self.min.y && pos.y <= self.max.y &&
+    pos.z >= self.min.z && pos.z <= self.max.z
+  }
+
+  pub fn intersects(self, other: BoundingBox) -> bool {
+    let (b1, b2) = (self, other);
+    let x_overlap = value_in_range(b1.min.x, b2.min.x, b2.max.x) || value_in_range(b2.min.x, b1.min.x, b1.max.x);
+    let y_overlap = value_in_range(b1.min.y, b2.min.y, b2.max.y) || value_in_range(b2.min.y, b1.min.y, b1.max.y);
+    let z_overlap = value_in_range(b1.min.z, b2.min.z, b2.max.z) || value_in_range(b2.min.z, b1.min.z, b1.max.z);
+
+    x_overlap && y_overlap && z_overlap
+  }
+
   pub fn in_chunk(self, chunk: IVec2) -> bool {
     let chunk_min = chunk * 16 + 0;
     let chunk_max = chunk * 16 + 15;
@@ -118,7 +134,11 @@ fn boxes_intersect(min1: IVec2, max1: IVec2, min2: IVec2, max2: IVec2) -> bool {
   x_overlap && y_overlap
 }
 
-
+#[inline]
+fn value_in_range<T>(value: T, min: T, max: T) -> bool
+where T: std::cmp::PartialOrd {
+  value >= min && value <= max
+}
 
 type AddConstant<Source> = noise::Add<f64, Source, noise::Constant, 2>;
 type MultiplyConstant<Source> = noise::Multiply<f64, Source, noise::Constant, 2>;

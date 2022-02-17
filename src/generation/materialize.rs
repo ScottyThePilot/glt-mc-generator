@@ -1,6 +1,6 @@
-use super::{Block, BoundingBox, Geometry, MaterialGeometry};
-
 use glam::IVec3;
+
+use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 
 
 
@@ -23,8 +23,8 @@ impl<G> Materialize<G> {
 impl<G> Geometry for Materialize<G>
 where G: Geometry {
   #[inline]
-  fn bounding_box_guess(&self) -> BoundingBox {
-    self.geometry.bounding_box_guess()
+  fn bounding_box(&self) -> BoundingBox {
+    self.geometry.bounding_box()
   }
 
   #[inline]

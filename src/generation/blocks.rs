@@ -1,16 +1,20 @@
-use super::Block;
-
 use std::borrow::Cow;
 
+use super::Block;
+
 macro_rules! const_block {
-  ($base_block:literal) => (Block {
-    base_block: Cow::Borrowed($base_block),
-    extra_block: None
-  });
-  ($base_block:literal, $extra_block:literal) => (Block {
-    base_block: Cow::Borrowed($base_block),
-    extra_block: Some(Cow::Borrowed($extra_block))
-  });
+  ($base_block:literal) => {
+    Block {
+      base_block: Cow::Borrowed($base_block),
+      extra_block: None
+    }
+  };
+  ($base_block:literal, $extra_block:literal) => {
+    Block {
+      base_block: Cow::Borrowed($base_block),
+      extra_block: Some(Cow::Borrowed($extra_block))
+    }
+  };
 }
 
 pub const GRAVEL: Block = const_block!("minecraft:gravel");

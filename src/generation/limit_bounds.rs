@@ -1,6 +1,6 @@
-use super::{Block, BoundingBox, Geometry, MaterialGeometry};
-
 use glam::{IVec2, IVec3};
+
+use super::{Block, BoundingBox, Geometry, MaterialGeometry};
 
 
 
@@ -23,8 +23,8 @@ impl<G> LimitBounds<G> {
 
 impl<G> Geometry for LimitBounds<G>
 where G: Geometry {
-  fn bounding_box_guess(&self) -> BoundingBox {
-    let mut bounding_box = self.geometry.bounding_box_guess();
+  fn bounding_box(&self) -> BoundingBox {
+    let mut bounding_box = self.geometry.bounding_box();
     bounding_box.min.x = bounding_box.min.x.max(self.bounds_min.x);
     bounding_box.min.y = bounding_box.min.y.max(self.bounds_min.y);
     bounding_box.max.x = bounding_box.max.x.min(self.bounds_max.x);
