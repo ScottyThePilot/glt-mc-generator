@@ -1,4 +1,5 @@
 [workspace]
 members = [
-  "glt-mc-generator"
+  "glt-mc-generator",
+  "kettenkrad"
 ]
