@@ -23,8 +23,8 @@ where G: GeometryDescriber, M: Geometry {
   type Block = <G as GeometryDescriber>::Block;
 
   #[inline]
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>) {
-    self.geometry.describe(&mut GeometryReceiverMasked::new(reciever, &self.mask));
+  fn describe<R>(&self, receiver: &mut R) where R: GeometryReceiver<Block = Self::Block> {
+    self.geometry.describe(&mut GeometryReceiverMasked::new(receiver, &self.mask));
   }
 }
 
@@ -58,8 +58,8 @@ impl<G: GeometryDescriber> GeometryDescriber for Mask<G, BoundingBox2> {
   type Block = <G as GeometryDescriber>::Block;
 
   #[inline]
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>) {
-    self.geometry.describe(&mut GeometryReceiverMasked::new(reciever, self.mask));
+  fn describe<R>(&self, receiver: &mut R) where R: GeometryReceiver<Block = Self::Block> {
+    self.geometry.describe(&mut GeometryReceiverMasked::new(receiver, self.mask));
   }
 }
 
@@ -87,8 +87,8 @@ impl<G: GeometryDescriber> GeometryDescriber for Mask<G, BoundingBox3> {
   type Block = <G as GeometryDescriber>::Block;
 
   #[inline]
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>) {
-    self.geometry.describe(&mut GeometryReceiverMasked::new(reciever, self.mask));
+  fn describe<R>(&self, receiver: &mut R) where R: GeometryReceiver<Block = Self::Block> {
+    self.geometry.describe(&mut GeometryReceiverMasked::new(receiver, self.mask));
   }
 }
 

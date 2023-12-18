@@ -12,11 +12,20 @@ use itertools::structs::Product;
 
 
 /// Represents a type that can hold and store world data.
+///
+/// A [`GeometryReceiver`] is necessary to render a [`GeometryDescriber`],
+/// and is ideally the final destination of a [`MaterialGeometry`].
 pub trait GeometryReceiver {
   type Block;
 
+  /// Receive a block, storing it in the world data.
   fn receive_block(&mut self, pos: Vec3, block: Self::Block);
-  fn receive_material_geometry(&mut self, geometry: &impl MaterialGeometry<Block = Self::Block>) where Self: Sized {
+
+  /// Loops over every block in the given [`MaterialGeometry`], sending them to this [`GeometryReceiver`].
+  ///
+  /// This uses [`GeometryMaterializer`] internally.
+  fn receive_material_geometry<G>(&mut self, geometry: &G)
+  where G: MaterialGeometry<Block = Self::Block>, Self: Sized {
     GeometryMaterializer::new(geometry).describe(self);
   }
 }
@@ -39,15 +48,18 @@ impl<T: GeometryReceiver> GeometryReceiver for &mut T {
 pub trait GeometryDescriber {
   type Block;
 
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>);
+  /// Send all of the blocks in this [`GeometryDescriber`] to a [`GeometryReceiver`] to be rendered.
+  fn describe<R>(&self, receiver: &mut R)
+  where R: GeometryReceiver<Block = Self::Block>;
 }
 
 impl<T: GeometryDescriber> GeometryDescriber for &T {
   type Block = <T as GeometryDescriber>::Block;
 
   #[inline]
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>) {
-    T::describe(self, reciever)
+  fn describe<R>(&self, receiver: &mut R)
+  where R: GeometryReceiver<Block = Self::Block> {
+    T::describe(self, receiver)
   }
 }
 
@@ -61,7 +73,15 @@ impl<T: GeometryDescriber> GeometryDescriber for &T {
 /// [`Geometry`] should be preferred for features that *must* be
 /// sampled at every point (such as those based on noise functions).
 pub trait Geometry {
+  /// Represents the greatest possible extents of the contents of this geometry.
+  /// This is necessary as it allows an inspector of a [`Geometry`] to know where look for it on the infinite plane.
+  /// A geometry may extend beyond its canonical bounding box (bounds checks within `block_at` are not necessary),
+  /// however those blocks will not be rendered when it is sent to a [`GeometryReceiver`].
+  ///
+  /// If this returns `None`, it represents an empty bounding box containing no geometry.
   fn bounding_box(&self) -> Option<BoundingBox3>;
+
+  /// If a block is located at the given position, this should return `true`, otherwise `false`.
   fn block_at(&self, pos: Vec3) -> bool;
 }
 
@@ -81,6 +101,11 @@ impl<T: Geometry> Geometry for &T {
 pub trait MaterialGeometry: Geometry {
   type Block;
 
+  /// If a block is located at the given position, this should
+  /// return `Some`, with the data of the block, otherwise `None`.
+  ///
+  /// It is a logical error if this function does not line up with
+  /// its respective [`block_at`][Geometry#method.block_at] implementation.
   fn block_material_at(&self, pos: Vec3) -> Option<Self::Block>;
 }
 
@@ -96,6 +121,10 @@ impl<T: MaterialGeometry> MaterialGeometry for &T {
 
 
 /// Wraps a [`MaterialGeometry`] to make it behave like a [`GeometryDescriber`].
+///
+/// This will loop over every block in the geometry's bounding box,
+/// sending each of them to the [`GeometryReceiver`].
+#[derive(Debug, Clone, Copy)]
 pub struct GeometryMaterializer<G> {
   pub geometry: G
 }
@@ -110,11 +139,12 @@ impl<G> GeometryMaterializer<G> {
 impl<G: MaterialGeometry> GeometryDescriber for GeometryMaterializer<G> {
   type Block = <G as MaterialGeometry>::Block;
 
-  fn describe(&self, reciever: &mut impl GeometryReceiver<Block = Self::Block>) {
+  fn describe<R>(&self, receiver: &mut R)
+  where R: GeometryReceiver<Block = Self::Block> {
     if let Some(bounding_box) = self.geometry.bounding_box() {
       for pos in bounding_box {
         if let Some(block) = self.geometry.block_material_at(pos) {
-          reciever.receive_block(pos, block);
+          receiver.receive_block(pos, block);
         };
       };
     };
@@ -135,11 +165,25 @@ pub struct BoundingBox<V> {
 }
 
 impl BoundingBox2 {
+  /// A bounding box that contains every possible point.
+  pub const INF: Self = BoundingBox {
+    max: Vec2::new(i64::MAX, i64::MAX),
+    min: Vec2::new(i64::MIN, i64::MIN)
+  };
+
+  /// Creates a new [`BoundingBox`]. The provided points need not be in any order.
+  /// They need only be two points in two corners of the bounding box.
   pub fn new(p1: Vec2, p2: Vec2) -> Self {
     let (min, max) = (Vec2::min(p1, p2), Vec2::max(p1, p2));
     BoundingBox { min, max }
   }
 
+  /// Creates a new [`BoundingBox2`] representing the bounds of a chunk at the given chunk coordinates.
+  pub fn new_chunk(chunk: Vec2) -> Self {
+    BoundingBox2::new(chunk * 16 + 0, chunk * 16 + 15)
+  }
+
+  /// Create a bounding box that is large enough to contain both of the provided bounding boxes.
   pub fn union(self, other: Self) -> Self {
     let min = Vec2::min(self.min, other.min);
     let max = Vec2::max(self.max, other.max);
@@ -150,6 +194,8 @@ impl BoundingBox2 {
     try_combine(box1, box2, BoundingBox2::union)
   }
 
+  /// Create a bounding box from the intersection of two other bounding boxes.
+  /// If the two bounding boxes do not overlap, this will return `None`.
   pub fn intersect(self, other: Self) -> Option<Self> {
     if self.intersects_with(other) {
       let min = Vec2::max(self.min, other.min);
@@ -160,6 +206,7 @@ impl BoundingBox2 {
     }
   }
 
+  /// Whether or not this bounding box contains a given point.
   pub fn contains(self, pos: Vec2) -> bool {
     contains(pos.x, self.min.x, self.max.x) &&
     contains(pos.y, self.min.y, self.max.y)
@@ -168,12 +215,19 @@ impl BoundingBox2 {
     //pos.y >= self.min.y && pos.y <= self.max.y
   }
 
+  /// Whether or not this bounding box intersects with another bounding box.
   pub fn intersects_with(self, other: Self) -> bool {
     let x_overlap = axis_overlapping(&self, &other, |v| v.x);
     let y_overlap = axis_overlapping(&self, &other, |v| v.y);
     x_overlap && y_overlap
   }
 
+  /// Whether or not this bounding box intersects with the given chunk pos.
+  pub fn intersects_with_chunk(self, chunk: Vec2) -> bool {
+    self.intersects_with(BoundingBox2::new_chunk(chunk))
+  }
+
+  /// Extends this 2D bounding box into 3D with a min and max Z component, where Z is up.
   pub fn extend(self, min: i64, max: i64) -> BoundingBox3 {
     let (min, max) = (i64::min(min, max), i64::max(min, max));
     BoundingBox {
@@ -193,11 +247,20 @@ impl IntoIterator for BoundingBox2 {
 }
 
 impl BoundingBox3 {
+  /// A bounding box that contains every possible point.
+  pub const INF: Self = BoundingBox {
+    max: Vec3::new(i64::MAX, i64::MAX, i64::MAX),
+    min: Vec3::new(i64::MIN, i64::MIN, i64::MIN)
+  };
+
+  /// Creates a new [`BoundingBox`]. The provided points need not be in any order.
+  /// They need only be two points in two corners of the bounding box.
   pub fn new(min: Vec3, max: Vec3) -> Self {
     let (min, max) = (Vec3::min(min, max), Vec3::max(min, max));
     BoundingBox { min, max }
   }
 
+  /// Create a bounding box that is large enough to contain both of the provided bounding boxes.
   pub fn union(self, other: Self) -> Self {
     let min = Vec3::min(self.min, other.min);
     let max = Vec3::max(self.max, other.max);
@@ -208,6 +271,8 @@ impl BoundingBox3 {
     try_combine(box1, box2, BoundingBox3::union)
   }
 
+  /// Create a bounding box from the intersection of two other bounding boxes.
+  /// If the two bounding boxes do not overlap, this will return `None`.
   pub fn intersect(self, other: Self) -> Option<Self> {
     if self.intersects_with(other) {
       let min = Vec3::max(self.min, other.min);
@@ -218,6 +283,9 @@ impl BoundingBox3 {
     }
   }
 
+  /// Creates a new bounding box cropped by a given 2D bounding box.
+  /// The bounding box's X and Y components will be cropped, where Z is up.
+  /// If the provided 2D bounding box does not intersect with this bounding box, this will return `None`.
   pub fn crop(self, bounding_box: BoundingBox2) -> Option<Self> {
     //let min = Vec2::max(self.min.truncate(), other.min).extend(self.min.z);
     //let max = Vec2::min(self.max.truncate(), other.max).extend(self.max.z);
@@ -225,6 +293,7 @@ impl BoundingBox3 {
       .map(|bounding_box| bounding_box.extend(self.min.z, self.max.z))
   }
 
+  /// Whether or not this bounding box contains a given point.
   pub fn contains(self, pos: Vec3) -> bool {
     contains(pos.x, self.min.x, self.max.x) &&
     contains(pos.y, self.min.y, self.max.y) &&
@@ -235,6 +304,7 @@ impl BoundingBox3 {
     //pos.z >= self.min.z && pos.z <= self.max.z
   }
 
+  /// Whether or not this bounding box intersects with another bounding box.
   pub fn intersects_with(self, other: Self) -> bool {
     let x_overlap = axis_overlapping(&self, &other, |v| v.x);
     let y_overlap = axis_overlapping(&self, &other, |v| v.y);
@@ -242,11 +312,12 @@ impl BoundingBox3 {
     x_overlap && y_overlap && z_overlap
   }
 
+  /// Whether or not this bounding box intersects with the given chunk pos.
   pub fn intersects_with_chunk(self, chunk: Vec2) -> bool {
-    let chunk = BoundingBox2::new(chunk * 16 + 0, chunk * 16 + 15);
-    self.truncate().intersects_with(chunk)
+    self.truncate().intersects_with_chunk(chunk)
   }
 
+  /// Converts this 3D bounding box to 2D by removing its Z component, where Z is up.
   pub fn truncate(self) -> BoundingBox2 {
     BoundingBox {
       min: self.min.truncate(),
